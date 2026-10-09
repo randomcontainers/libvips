@@ -1,0 +1,141 @@
+name: libvips
+title: libvips
+summary: Converts, resizes and processes images with the vips and vipsthumbnail tools, including HEIC, AVIF, JPEG XL, JPEG 2000, SVG and OpenEXR files.
+homepage: https://www.libvips.org/
+# libvips is under the LGPL. It contains libnsgif (MIT), code from Radiance
+# under the Radiance Software License 2.0 (the same text as
+# BSD-3-Clause-LBNL) and 1.0, and ICC profiles under CC0 or in the public
+# domain. libheif and libde265 are under the LGPL 3. libvips links
+# libimagequant (GPL-3.0-or-later) and FFTW (GPL-2.0-or-later) from the
+# distro, and libheif links the distro's x265 (GPL-2.0-or-later), so the
+# binaries as a whole are under GPL-3.0-or-later.
+license: LGPL-2.1-or-later AND MIT AND BSD-3-Clause-LBNL AND LicenseRef-Radiance-1.0 AND CC0-1.0 AND LicenseRef-Public-Domain AND LGPL-3.0-or-later AND GPL-2.0-or-later AND GPL-3.0-or-later
+source-release: true
+upstream:
+  source: github-release
+  repository: libvips/libvips
+  # Release tags look like v8.18.7; release candidates (v8.18.3-rc1) do not
+  # match.
+  tag-pattern: '^v(\d+\.\d+\.\d+)$'
+  version-template: '{1}'
+  versioning: semver
+  version: 8.18.7
+  artifact:
+    url: https://github.com/libvips/libvips/releases/download/v{version}/vips-{version}.tar.xz
+    checksums:
+      url: https://github.com/libvips/libvips/releases/download/v{version}/vips-{version}.tar.xz.sha256sum
+      algorithm: sha256
+    sha256: 5baaead3b0bb20ffdb9e9ff09aa9fda08620923df77b63b436654cb5e0b3bf94
+  # HEIC and AVIF support. Update these together with the libheif image and
+  # the same extras of the imagemagick image. libheif and libde265 publish no
+  # checksums or signatures; the hashes are the digests GitHub records for
+  # the release assets.
+  extra-artifacts:
+    libde265:
+      version: 1.1.3
+      url: https://github.com/strukturag/libde265/releases/download/v{version}/libde265-{version}.tar.gz
+      sha256: 554228bd17788c99a7e63b37ab5634722190e6e2bf60c1dcb01cef328e133905
+    libheif:
+      version: 1.23.6
+      url: https://github.com/strukturag/libheif/releases/download/v{version}/libheif-{version}.tar.gz
+      sha256: 4484346dc5995319dbc11e3a1c35d0a2ec46511ce370900869337fd2c7033125
+image:
+  entrypoint: [vips]
+  cmd: [--help]
+test:
+  - |
+    same() { [ "$1" = "$2" ] || { echo "$3: got '$1', expected '$2'" >&2; exit 1; }; }
+    vips --version > version.txt
+    same "$(cat version.txt)" "vips-$VERSION" 'vips --version'
+    same "$(vipsthumbnail --version)" "vips-$VERSION" 'vipsthumbnail --version'
+    for tool in vipsheader vipsedit; do
+      test -x "/usr/local/bin/$tool" || { echo "$tool is missing" >&2; exit 1; }
+    done
+  - |
+    # Listing the formats starts libvips, so a library problem shows up on
+    # stderr.
+    vips -l foreign > foreign.txt 2> foreign.err
+    if [ -s foreign.err ]; then cat foreign.err >&2; exit 1; fi
+    for op in jpegload pngload gifload gifsave webpload tiffload heifload jxlload jp2kload svgload \
+              openexrload fitsload dcrawload; do
+      grep -Fq "($op)" foreign.txt || { cat foreign.txt >&2; echo "$op is missing" >&2; exit 1; }
+    done
+  - |
+    same() { [ "$1" = "$2" ] || { echo "$3: got '$1', expected '$2'" >&2; exit 1; }; }
+    vips black x.v 64 48 --bands 3
+    for ext in jpg png webp tif gif avif jxl jp2; do
+      vips copy x.v "x.$ext"
+      same "$(vipsheader -f width "x.$ext") $(vipsheader -f height "x.$ext")" '64 48' "size of x.$ext"
+    done
+    printf '%s\n' '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40">' \
+      '<rect width="80" height="40" fill="blue"/></svg>' > in.svg
+    vips copy in.svg svg.png
+    same "$(vipsheader -f width svg.png) $(vipsheader -f height svg.png)" '80 40' 'size of svg.png'
+  - |
+    # A 64x48 blue HEIC. libvips marks the HEIF loader untrusted when it is
+    # built against a libheif older than 1.23.2, and VIPS_BLOCK_UNTRUSTED
+    # then refuses to load the file.
+    base64 -d > blue.heic <<'EOF'
+    AAAAJGZ0eXBoZWljAAAAAG1pZjFNaVBybWlhZk1pSEJoZWljAAABi21ldGEAAAAAAAAAIWhkbHIA
+    AAAAAAAAAHBpY3QAAAAAAAAAAAAAAAAAAAAAJGRpbmYAAAAcZHJlZgAAAAAAAAABAAAADHVybCAA
+    AAABAAAADnBpdG0AAAAAAAEAAAAjaWluZgAAAAAAAQAAABVpbmZlAgAAAAABAABodmMxAAAAAOtp
+    cHJwAAAAymlwY28AAAATY29scm5jbHgAAgACAAaAAAAADGNsbGkAywBAAAAAFGlzcGUAAAAAAAAA
+    QAAAADAAAAAJaXJvdAAAAAAQcGl4aQAAAAADCAgIAAAAdmh2Y0MBAWAAAACwAAAAAAAe8AD8/fj4
+    AAAPA6AAAQAXQAEMAf//AWAAAAMAsAAAAwAAAwAeLAmhAAEAIUIBAQFgAAADALAAAAMAAAMAHqAg
+    gxZy5JEpJcTcCAgYAqIAAQAQRAHAckwE6RERJEkSRJEqQAAAABlpcG1hAAAAAAAAAAEAAQaBAgMF
+    hoQAAAAeaWxvYwAAAABEAAABAAEAAAABAAABvwAAABgAAAABbWRhdAAAAAAAAAAoAAAAFCYBrcCz
+    Z//1KLd8TRv0UglOg2i4
+    EOF
+    same() { [ "$1" = "$2" ] || { echo "$3: got '$1', expected '$2'" >&2; exit 1; }; }
+    VIPS_BLOCK_UNTRUSTED=1 vips copy blue.heic blue.png
+    same "$(vipsheader -f width blue.png) $(vipsheader -f height blue.png)" '64 48' 'size of blue.png'
+    vips getpoint blue.png 32 24 > blue.txt
+    awk '{ exit !($1 < 26 && $3 > 229) }' blue.txt || { echo "blue.png is not blue: $(cat blue.txt)" >&2; exit 1; }
+    # Saving as .heic needs an HEVC encoder, here x265 in libheif. The file
+    # is read back and must still be blue after the lossy round trip.
+    vips copy blue.png rt.heic
+    same "$(head -c 12 rt.heic | tail -c 8)" ftypheic 'brand of rt.heic'
+    same "$(vipsheader -f width rt.heic) $(vipsheader -f height rt.heic)" '64 48' 'size of rt.heic'
+    VIPS_BLOCK_UNTRUSTED=1 vips copy rt.heic rt.png
+    vips getpoint rt.png 32 24 > rt.txt
+    awk '{ exit !($1 < 64 && $3 > 192) }' rt.txt || { echo "rt.png is not blue: $(cat rt.txt)" >&2; exit 1; }
+    # libheif and libde265 are compiled into /usr/local/lib, and libvips must
+    # load them from there, not from a distro package.
+    ldd /usr/local/lib/libvips.so.42 > vips-libs.txt
+    for lib in libheif.so.1 libde265.so.0; do
+      grep -Fq "$lib => /usr/local/lib/$lib " vips-libs.txt || { cat vips-libs.txt >&2; exit 1; }
+    done
+  - |
+    same() { [ "$1" = "$2" ] || { echo "$3: got '$1', expected '$2'" >&2; exit 1; }; }
+    vips black big.v 600 400 --bands 3
+    vips dzsave big.v pyr
+    for f in pyr.dzi pyr_files/0/0_0.jpeg pyr_files/10/2_1.jpeg; do
+      test -s "$f" || { echo "dzsave did not write $f" >&2; find pyr_files -type f | sort >&2; exit 1; }
+    done
+    grep -Fq 'Width="600"' pyr.dzi || { cat pyr.dzi >&2; exit 1; }
+    vips dzsave big.v pyr.zip
+    same "$(od -An -tx1 -N4 pyr.zip | tr -d ' \n')" 504b0304 'signature of pyr.zip'
+  - |
+    same() { [ "$1" = "$2" ] || { echo "$3: got '$1', expected '$2'" >&2; exit 1; }; }
+    vips black in.v 64 48 --bands 3
+    vips copy in.v in.jpg
+    vipsthumbnail in.jpg -s 32 --path thumb.jpg
+    same "$(vipsheader -f width thumb.jpg) $(vipsheader -f height thumb.jpg)" '32 24' 'size of thumb.jpg'
+  - |
+    # The tests run as an arbitrary UID with HOME=/, so a fontconfig cache
+    # problem shows up here as a warning on stderr.
+    if ! vips text text.png ok 2> text.err || [ -s text.err ]; then
+      cat text.err >&2
+      exit 1
+    fi
+    vips max text.png > max.txt
+    awk '{ exit !($1 > 0) }' max.txt || { echo "text.png is empty: max $(cat max.txt)" >&2; exit 1; }
+examples:
+  - title: Make an 800-pixel thumbnail of a photo
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" --entrypoint vipsthumbnail ghcr.io/randomcontainers/libvips photo.jpg -s 800 --path photo-800.jpg
+  - title: Convert a HEIC photo to AVIF
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/libvips copy photo.heic photo.avif
+  - title: Make a Deep Zoom tile pyramid of a large scan
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" ghcr.io/randomcontainers/libvips dzsave scan.tif scan
+  - title: Print the size and format of an image
+    command: docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/work" --entrypoint vipsheader ghcr.io/randomcontainers/libvips photo.jpg
